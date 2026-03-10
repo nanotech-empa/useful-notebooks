@@ -12,8 +12,6 @@ The repository is currently organized into the following folders:
 - `ChargeAnalysis/` – notebooks for charge-related analysis, including integrated charge profiles and population analysis.
 - `CubeFiles/` – notebooks for reading, integrating, and plotting data from Gaussian cube files.
 
-> Note: files named `._*.ipynb` are macOS metadata artifacts and are not documented below as real notebooks.
-
 ## Requirements
 
 Depending on the notebook, you may need some or all of the following:
