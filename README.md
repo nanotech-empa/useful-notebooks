@@ -32,10 +32,20 @@ Draft description: notebooks in this folder are meant to help retrieve, inspect,
 
 Draft description: retrieves volumetric cube files associated with a geometry-optimization workflow from the remote working directory. In its current form, the notebook loads an AiiDA node, finds the corresponding remote folder, and copies selected cube files (for example spin-density and electron-density files) to a local downloads directory via `scp`.
 
+In use by:
+-Deborah
+
 Potential future refinements:
 - generalize the workflow / node selection
 - make the list of file patterns configurable
 - add error handling when no matching files are found
+
+### `NscfEigenvalues.ipynb`
+Draft description: starting form the PK of a QE app workchain, idenfifyes the NSCF calculation, reads the eigenvalues and plot a DOS based solely on the eigenvalues. HOMO and LUMO values are provided according to teh number of electrons.
+
+In use by:
+- Suyash
+- Saketh
 
 ## ChargeAnalysis
 
@@ -66,6 +76,9 @@ Draft description: notebooks in this folder provide small utilities for inspecti
 ### `ChargeAverage.ipynb`
 
 Draft description: reads a charge-density cube file and computes the in-plane integrated charge profile as a function of `z`. The notebook then plots the resulting line density, checks that its integral reproduces the total charge, and compares the one-dimensional integral against the full three-dimensional volume integral.
+
+In use by:
+- Deborah
 
 Potential future refinements:
 - make input-file selection more user friendly
