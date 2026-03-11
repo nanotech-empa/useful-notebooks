@@ -73,6 +73,24 @@ Potential future refinements:
 
 Draft description: notebooks in this folder provide small utilities for inspecting scalar fields stored in Gaussian cube files, with emphasis on one-dimensional profiles and integral consistency checks.
 
+### `CubeDirectionalProfiles.ipynb`
+
+**Draft description:** reads a cube file from the `Downloads` directory and analyzes either a charge density or a Hartree/Rydberg potential along an arbitrary direction defined by two points `P1` and `P2` in Å. The notebook provides an interactive widget to select the cube file, choose the field type (`charge`, `hartree`, or `rydberg`), and switch between a **1D line plot** and a **2D perpendicular-plane plot**. For the 1D case, it computes the average field over a rectangular region perpendicular to `P2-P1` and plots it as a function of the coordinate along the line, using a user-defined `dl`. For the 2D case, it plots the field in a plane perpendicular to `P2-P1` at position `P0`, with optional Gaussian broadening controlled by `sigma` and `dn`. The rectangle sizes `L` and `W` can be entered manually or, if left empty, are initialized automatically from the largest projected cross section of the cell perpendicular to the chosen direction. The point coordinates `P1` and `P2` are entered as free text and accept several common separators. Periodic boundary conditions are applied consistently when sampling outside the original cell.
+
+**In use by:**
+
+- ToBeReleased
+
+**Potential future refinements:**
+
+- add explicit controls for the in-plane sampling steps used in the 1D and 2D averages
+- allow choosing interpolation method more explicitly, beyond interpolation order
+- cache the loaded cube file to avoid rereading it at each plot
+- add export of the computed 1D profile or 2D map to text or NumPy files
+- show or hide additional controls dynamically with a cleaner layout
+
+ 
+
 ### `ChargeAverage.ipynb`
 
 Draft description: reads a charge-density cube file and computes the in-plane integrated charge profile as a function of `z`. The notebook then plots the resulting line density, checks that its integral reproduces the total charge, and compares the one-dimensional integral against the full three-dimensional volume integral.
