@@ -33,7 +33,7 @@ Draft description: notebooks in this folder are meant to help retrieve, inspect,
 Draft description: retrieves volumetric cube files associated with a geometry-optimization workflow from the remote working directory. In its current form, the notebook loads an AiiDA node, finds the corresponding remote folder, and copies selected cube files (for example spin-density and electron-density files) to a local downloads directory via `scp`.
 
 In use by:
--Deborah
+- Deborah
 
 Potential future refinements:
 - generalize the workflow / node selection
