@@ -28,6 +28,19 @@ Depending on the notebook, you may need some or all of the following:
 
 Draft description: notebooks in this folder are meant to help retrieve, inspect, or post-process files associated with AiiDA workflows, especially when the relevant outputs remain on remote HPC storage.
 
+### `RetrieveSpinGuess.ipynb`
+
+Draft description: given the PK of a CP2K calculation retrieves the input spin guess and multiplicity.
+
+In use by:
+- Nicolo'
+
+Potential future refinements:
+- use list2range function for the output
+- check portability for all CP2K apps
+- add GUI
+
+
 ### `GetSpinDensityFromGeoOpt.ipynb`
 
 Draft description: retrieves volumetric cube files associated with a geometry-optimization workflow from the remote working directory. In its current form, the notebook loads an AiiDA node, finds the corresponding remote folder, and copies selected cube files (for example spin-density and electron-density files) to a local downloads directory via `scp`.
