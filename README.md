@@ -116,15 +116,3 @@ Potential future refinements:
 - support non-orthogonal cells if needed
 - add optional normalization or planar-average modes
 
-## Suggested next improvements for this repository
-
-A few natural improvements for the repository documentation could be:
-
-1. add a short top-level paragraph describing the scientific context of the notebooks
-2. specify whether notebooks are examples, production utilities, or exploratory analyses
-3. add a small usage note at the top of each notebook describing inputs, assumptions, and outputs
-4. move shared helper functions into a Python module if code duplication starts growing
-
-## License
-
-This repository includes a `LICENSE` file. If desired, a short sentence summarizing the license type can be added here.
