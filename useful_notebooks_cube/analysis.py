@@ -36,33 +36,84 @@ def _normalize_field_type(field_type):
 
 def _cube_geometry(header_lines, bohr_to_ang):
     """
-    Parse cube header geometry.
+    Parse geometric information from a Gaussian cube header.
 
-    Returns a dictionary with:
-      - origin_ang: origin in Å
-      - step_matrix_ang: 3x3 matrix, columns are voxel step vectors in Å
-      - cell_matrix_ang: 3x3 matrix, columns are full cell vectors in Å
-      - nxyz: grid shape [nx, ny, nz]
-      - inv_step_matrix_ang: inverse of step_matrix_ang
+    Parameters
+    ----------
+    header_lines : list[str]
+        Cube header lines, expected in the standard format returned by
+        ``read_cube_full``:
+          - 2 comment lines
+          - 1 line with natoms and origin
+          - 3 grid-definition lines
+    bohr_to_ang : float
+        Bohr-to-Å conversion factor.
+
+    Returns
+    -------
+    dict
+        Dictionary with:
+        - origin_ang : ndarray, shape (3,)
+            Grid origin in Å.
+        - step_matrix_ang : ndarray, shape (3, 3)
+            Matrix whose columns are the three voxel step vectors in Å.
+        - cell_matrix_ang : ndarray, shape (3, 3)
+            Matrix whose columns are the full cell vectors in Å.
+        - inv_step_matrix_ang : ndarray, shape (3, 3)
+            Inverse of ``step_matrix_ang``.
+        - nxyz : ndarray, shape (3,)
+            Grid shape [nx, ny, nz].
+
+    Notes
+    -----
+    The cube convention is:
+    - line 3: natoms origin_x origin_y origin_z
+    - next 3 lines: n_i v_i_x v_i_y v_i_z
+
+    The grid counts may appear with a negative sign in some cube variants;
+    only their absolute values are physically relevant here.
     """
-    origin_tokens = header_lines[2].split()
-    xgrid_tokens = header_lines[3].split()
-    ygrid_tokens = header_lines[4].split()
-    zgrid_tokens = header_lines[5].split()
+    if len(header_lines) < 6:
+        raise ValueError(
+            f"Expected at least 6 header lines, got {len(header_lines)}."
+        )
 
-    # cube convention: line 3 is [natoms, ox, oy, oz]
-    origin_bohr = np.array(list(map(float, origin_tokens[1:4])), dtype=float)
+    try:
+        origin_tokens = header_lines[2].split()
+        xgrid_tokens = header_lines[3].split()
+        ygrid_tokens = header_lines[4].split()
+        zgrid_tokens = header_lines[5].split()
+    except IndexError as exc:
+        raise ValueError("Cube header does not contain the required geometry lines.") from exc
 
-    nx = abs(int(xgrid_tokens[0]))
-    ny = abs(int(ygrid_tokens[0]))
-    nz = abs(int(zgrid_tokens[0]))
+    try:
+        origin_bohr = np.array(list(map(float, origin_tokens[1:4])), dtype=float)
 
-    vx_bohr = np.array(list(map(float, xgrid_tokens[1:4])), dtype=float)
-    vy_bohr = np.array(list(map(float, ygrid_tokens[1:4])), dtype=float)
-    vz_bohr = np.array(list(map(float, zgrid_tokens[1:4])), dtype=float)
+        nx = abs(int(xgrid_tokens[0]))
+        ny = abs(int(ygrid_tokens[0]))
+        nz = abs(int(zgrid_tokens[0]))
+
+        vx_bohr = np.array(list(map(float, xgrid_tokens[1:4])), dtype=float)
+        vy_bohr = np.array(list(map(float, ygrid_tokens[1:4])), dtype=float)
+        vz_bohr = np.array(list(map(float, zgrid_tokens[1:4])), dtype=float)
+    except (IndexError, ValueError) as exc:
+        raise ValueError("Failed to parse origin and grid vectors from cube header.") from exc
+
+    if nx <= 0 or ny <= 0 or nz <= 0:
+        raise ValueError(
+            f"Invalid cube grid dimensions: ({nx}, {ny}, {nz})."
+        )
+
+    step_matrix_bohr = np.column_stack([vx_bohr, vy_bohr, vz_bohr])
+
+    det = float(np.linalg.det(step_matrix_bohr))
+    if np.isclose(det, 0.0, atol=1e-15):
+        raise ValueError(
+            "Cube step matrix is singular; the three grid vectors are not linearly independent."
+        )
 
     origin_ang = origin_bohr * bohr_to_ang
-    step_matrix_ang = bohr_to_ang * np.column_stack([vx_bohr, vy_bohr, vz_bohr])
+    step_matrix_ang = step_matrix_bohr * bohr_to_ang
 
     nxyz = np.array([nx, ny, nz], dtype=int)
     cell_matrix_ang = step_matrix_ang @ np.diag(nxyz)
@@ -74,6 +125,7 @@ def _cube_geometry(header_lines, bohr_to_ang):
         "inv_step_matrix_ang": np.linalg.inv(step_matrix_ang),
         "nxyz": nxyz,
     }
+
 def _convert_cube_values(values, field_type, bohr_to_ang):
     """
     Convert cube values to requested physical units.
@@ -267,44 +319,76 @@ def cube_plane_average_profile(
     order=1,
 ):
     """
-    1D profile along the line P1 -> P2 from averages over perpendicular rectangles.
+    Compute a 1D profile along the line P1 -> P2 by averaging the cube field
+    over rectangles perpendicular to that line.
 
     Parameters
     ----------
     header_lines : list[str]
-        Cube header lines.
-    cube_values : ndarray, shape (nx, ny, nz)
-        Scalar field read from cube.
+        Cube header lines as returned by ``read_cube_full``.
+    cube_values : numpy.ndarray
+        Cube scalar field with shape (nx, ny, nz).
     bohr_to_ang : float
-        Conversion factor Bohr -> Å.
-    P1, P2 : array-like, shape (3,)
-        Endpoints in Å.
-    field_type : {'charge', 'hartree', 'rydberg'}
-        Type of scalar field.
+        Bohr-to-Å conversion factor.
+    P1, P2 : array-like of length 3
+        Endpoints of the analysis line in Å.
+    field_type : {'charge', 'hartree', 'rydberg'}, default 'charge'
+        Physical interpretation of the cube values.
     dl : float, default 0.1
-        Target step along P1 -> P2 in Å.
-    L, W : float or None
-        Rectangle size in the plane perpendicular to P2-P1, in Å.
-        If None, use the default largest projected cross-section of the cell.
-    du, dv : float
-        Target in-plane sampling steps in Å.
-    order : int
-        Interpolation order for scipy.ndimage.map_coordinates.
+        Target sampling step along the line P1 -> P2, in Å.
+    L, W : float or None, optional
+        Size of the perpendicular averaging rectangle in Å along the two
+        in-plane basis vectors. If omitted, use the projected bounding
+        rectangle of the full cell.
+    du, dv : float or None, optional
+        Target in-plane sampling steps in Å. If ``dv`` is None, use ``du``.
+    order : int, default 1
+        Interpolation order passed to ``scipy.ndimage.map_coordinates``.
+        Allowed values are 0 through 5.
 
     Returns
     -------
-    result : dict
-        Contains profile, geometry, sampling metadata, labels, and units.
+    dict
+        Dictionary containing the sampled profile, geometric metadata, labels,
+        units, and sampling information.
+
+    Notes
+    -----
+    The returned ``profile`` is an average over each perpendicular rectangle,
+    not an integral over it. Therefore:
+    - for ``field_type='charge'`` the profile is in e / Å³
+    - for ``field_type='hartree'`` it is in Hartree
+    - for ``field_type='rydberg'`` it is in Rydberg
+
+    Periodic wrapping is used when sampling outside the primitive cube cell.
     """
+    cube_values = np.asarray(cube_values, dtype=float)
+    if cube_values.ndim != 3:
+        raise ValueError(
+            f"`cube_values` must be a 3D array, got shape {cube_values.shape}."
+        )
+
     geom = _cube_geometry(header_lines, bohr_to_ang)
+    expected_shape = tuple(int(x) for x in geom["nxyz"])
+    if cube_values.shape != expected_shape:
+        raise ValueError(
+            f"Shape mismatch: cube header expects {expected_shape}, "
+            f"but `cube_values` has shape {cube_values.shape}."
+        )
+
     values_phys, unit, quantity_name, field_type = _convert_cube_values(
         cube_values, field_type, bohr_to_ang
     )
 
-    P1 = np.asarray(P1, dtype=float)
-    P2 = np.asarray(P2, dtype=float)
+    P1 = np.asarray(P1, dtype=float).reshape(-1)
+    P2 = np.asarray(P2, dtype=float).reshape(-1)
+    if P1.shape != (3,) or P2.shape != (3,):
+        raise ValueError("`P1` and `P2` must each contain exactly 3 coordinates.")
+
     direction = P2 - P1
-    axis_length = np.linalg.norm(direction)
+    axis_length = float(np.linalg.norm(direction))
+    if axis_length <= 0:
+        raise ValueError("`P1` and `P2` must be different points.")
 
     uhat, e1, e2 = _orthonormal_plane_basis(direction)
     L_default, W_default = _default_perp_rectangle(geom["cell_matrix_ang"], e1, e2)
@@ -315,6 +399,11 @@ def cube_plane_average_profile(
         W = W_default
     if dv is None:
         dv = du
+
+    L = float(L)
+    W = float(W)
+    du = float(du)
+    dv = float(dv)
 
     l_ang, l_edges_ang, dl_eff, nl = _line_centers(axis_length, dl)
     u_ang, du_eff, nu = _centered_axis(L, du)
@@ -330,7 +419,7 @@ def cube_plane_average_profile(
         center = P1 + s * uhat
         points = center[None, :] + plane_offsets_flat
         vals = _sample_cube_periodic(points, values_phys, geom, order=order)
-        profile[i] = vals.mean()
+        profile[i] = float(np.mean(vals))
 
     rectangle_area = float(L * W)
     dA = float(du_eff * dv_eff)
@@ -413,53 +502,90 @@ def cube_perpendicular_plane_map(
     order=1,
 ):
     """
-    2D map in the plane perpendicular to P1 -> P2 at a given position, with
-    optional Gaussian broadening along the normal direction.
+    Compute a 2D map in the plane perpendicular to P1 -> P2 at a given
+    position, with optional Gaussian broadening along the plane normal.
 
     Parameters
     ----------
     header_lines : list[str]
-        Cube header lines.
-    cube_values : ndarray, shape (nx, ny, nz)
-        Scalar field read from cube.
+        Cube header lines as returned by ``read_cube_full``.
+    cube_values : numpy.ndarray
+        Cube scalar field with shape (nx, ny, nz).
     bohr_to_ang : float
-        Conversion factor Bohr -> Å.
-    P1, P2 : array-like, shape (3,)
-        Endpoints in Å defining the axis.
+        Bohr-to-Å conversion factor.
+    P1, P2 : array-like of length 3
+        Endpoints of the reference line in Å.
     position : float, default 0.0
-        Position along P1 -> P2 in Å. position=0 means plane through P1.
-    field_type : {'charge', 'hartree', 'rydberg'}
-        Type of scalar field.
-    L, W : float or None
-        Rectangle size in the perpendicular plane, in Å.
-        If None, use default largest projected cross-section.
-    du, dv : float
-        Target in-plane sampling steps in Å.
+        Position along the P1 -> P2 direction in Å, measured from P1.
+        Thus:
+        - ``position = 0`` gives the plane through P1
+        - ``position = |P2 - P1|`` gives the plane through P2
+    field_type : {'charge', 'hartree', 'rydberg'}, default 'charge'
+        Physical interpretation of the cube values.
+    L, W : float or None, optional
+        Size of the perpendicular map rectangle in Å along the two in-plane
+        basis vectors. If omitted, use the projected bounding rectangle of the
+        full cell.
+    du, dv : float or None, optional
+        Target in-plane sampling steps in Å. If ``dv`` is None, use ``du``.
     sigma : float, default 0.0
-        Gaussian broadening sigma in Å along the plane normal.
-        sigma=0 means direct slice.
-    dn : float or None
-        Sampling step along the normal direction for the Gaussian quadrature.
-        If None, choose an automatic value.
-    truncate : float
+        Gaussian broadening width in Å along the plane normal.
+        ``sigma = 0`` means a direct slice with no broadening.
+    dn : float or None, optional
+        Sampling step in Å along the normal direction used for the Gaussian
+        quadrature when ``sigma > 0``. If omitted, choose an automatic value.
+    truncate : float, default 4.0
         Gaussian cutoff in units of sigma.
-    order : int
-        Interpolation order for scipy.ndimage.map_coordinates.
+    order : int, default 1
+        Interpolation order passed to ``scipy.ndimage.map_coordinates``.
+        Allowed values are 0 through 5.
 
     Returns
     -------
-    result : dict
-        Contains 2D map, geometry, sampling metadata, labels, and units.
+    dict
+        Dictionary containing the sampled 2D map, geometric metadata, labels,
+        units, and sampling information.
+
+    Notes
+    -----
+    The returned map is a field value on the perpendicular plane:
+    - for ``field_type='charge'`` it is in e / Å³
+    - for ``field_type='hartree'`` it is in Hartree
+    - for ``field_type='rydberg'`` it is in Rydberg
+
+    When ``sigma > 0``, the returned map is Gaussian-averaged along the plane
+    normal, i.e. along the P1 -> P2 direction.
     """
+    cube_values = np.asarray(cube_values, dtype=float)
+    if cube_values.ndim != 3:
+        raise ValueError(
+            f"`cube_values` must be a 3D array, got shape {cube_values.shape}."
+        )
+
     geom = _cube_geometry(header_lines, bohr_to_ang)
+    expected_shape = tuple(int(x) for x in geom["nxyz"])
+    if cube_values.shape != expected_shape:
+        raise ValueError(
+            f"Shape mismatch: cube header expects {expected_shape}, "
+            f"but `cube_values` has shape {cube_values.shape}."
+        )
+
     values_phys, unit, quantity_name, field_type = _convert_cube_values(
         cube_values, field_type, bohr_to_ang
     )
 
-    P1 = np.asarray(P1, dtype=float)
-    P2 = np.asarray(P2, dtype=float)
+    P1 = np.asarray(P1, dtype=float).reshape(-1)
+    P2 = np.asarray(P2, dtype=float).reshape(-1)
+    if P1.shape != (3,) or P2.shape != (3,):
+        raise ValueError("`P1` and `P2` must each contain exactly 3 coordinates.")
+
     direction = P2 - P1
-    axis_length = np.linalg.norm(direction)
+    axis_length = float(np.linalg.norm(direction))
+    if axis_length <= 0:
+        raise ValueError("`P1` and `P2` must be different points.")
+
+    position = float(position)
+    sigma = float(sigma)
 
     uhat, e1, e2 = _orthonormal_plane_basis(direction)
     L_default, W_default = _default_perp_rectangle(geom["cell_matrix_ang"], e1, e2)
@@ -471,38 +597,49 @@ def cube_perpendicular_plane_map(
     if dv is None:
         dv = du
 
+    L = float(L)
+    W = float(W)
+    du = float(du)
+    dv = float(dv)
+    truncate = float(truncate)
+
     u_ang, du_eff, nu = _centered_axis(L, du)
     v_ang, dv_eff, nv = _centered_axis(W, dv)
 
     U, V = np.meshgrid(u_ang, v_ang, indexing="ij")
-    center = P1 + float(position) * uhat
+    center = P1 + position * uhat
 
     plane_points = center + U[..., None] * e1 + V[..., None] * e2
     plane_points_flat = plane_points.reshape(-1, 3)
 
     if sigma < 0:
-        raise ValueError("sigma must be >= 0.")
+        raise ValueError("`sigma` must be >= 0.")
 
-    if sigma == 0:
-        field_2d = _sample_cube_periodic(plane_points_flat, values_phys, geom, order=order)
-        field_2d = field_2d.reshape(U.shape)
-        normal_offsets = np.array([0.0])
-        normal_weights = np.array([1.0])
+    if sigma == 0.0:
+        field_2d = _sample_cube_periodic(
+            plane_points_flat,
+            values_phys,
+            geom,
+            order=order,
+        ).reshape(U.shape)
+        normal_offsets = np.array([0.0], dtype=float)
+        normal_weights = np.array([1.0], dtype=float)
         dn_eff = 0.0
     else:
         if dn is None:
-            # reasonable automatic normal step
             dn = min(du_eff, dv_eff, max(sigma / 3.0, 0.05))
+        dn = float(dn)
+
         if dn <= 0:
-            raise ValueError("dn must be > 0 when sigma > 0.")
+            raise ValueError("`dn` must be > 0 when `sigma > 0`.")
         if truncate <= 0:
-            raise ValueError("truncate must be > 0.")
+            raise ValueError("`truncate` must be > 0.")
 
         n_side = max(1, int(np.ceil(truncate * sigma / dn)))
         normal_offsets = np.arange(-n_side, n_side + 1, dtype=float) * dn
         normal_weights = np.exp(-0.5 * (normal_offsets / sigma) ** 2)
         normal_weights /= normal_weights.sum()
-        dn_eff = float(dn)
+        dn_eff = dn
 
         field_2d = np.zeros(U.shape, dtype=float)
         for t, w in zip(normal_offsets, normal_weights):
@@ -542,7 +679,7 @@ def cube_perpendicular_plane_map(
         "plane_e1": e1,
         "plane_e2": e2,
         "plane_center_ang": center,
-        "position_ang": float(position),
+        "position_ang": position,
 
         # rectangle
         "L_ang": float(L),
@@ -560,11 +697,11 @@ def cube_perpendicular_plane_map(
         "nv": int(nv),
 
         # Gaussian broadening
-        "sigma_ang": float(sigma),
+        "sigma_ang": sigma,
         "dn_ang": float(dn_eff),
         "normal_offsets_ang": normal_offsets,
         "normal_weights": normal_weights,
-        "truncate": float(truncate),
+        "truncate": truncate,
 
         # useful references
         "origin_ang": geom["origin_ang"],
@@ -572,3 +709,406 @@ def cube_perpendicular_plane_map(
         "step_matrix_ang": geom["step_matrix_ang"],
         "grid_shape": geom["nxyz"],
     }
+
+def z_charge_density_profile(
+    header_lines,
+    rho,
+    bohr_to_ang,
+    check_axis_alignment=True,
+    alignment_tol=1e-8,
+):
+    """
+    Compute the in-plane integrated charge profile lambda(z) such that
+
+        integral lambda(z) dz = total charge.
+
+    Parameters
+    ----------
+    header_lines : list[str]
+        Cube header lines as returned by ``read_cube_full``.
+    rho : numpy.ndarray
+        Charge density array with shape (nx, ny, nz), in e / bohr^3.
+    bohr_to_ang : float
+        Bohr-to-Å conversion factor.
+    check_axis_alignment : bool, default True
+        If True, validate that the third cube axis corresponds to the
+        Cartesian z direction, i.e. that the notebook assumption used for
+        charge-vs-z analysis is satisfied.
+    alignment_tol : float, default 1e-8
+        Tolerance used for the axis-alignment check in bohr.
+
+    Returns
+    -------
+    z_ang : numpy.ndarray
+        z coordinates in Å.
+    lambda_z_ang : numpy.ndarray
+        In-plane integrated charge density in e / Å.
+
+    Notes
+    -----
+    This function is intended for the slab-style use case in which the third
+    cube axis is the physical z direction. It therefore computes the charge
+    profile by integrating over the first two grid directions for each z slice.
+
+    If the cube is written with decreasing z, the returned arrays are flipped
+    so that ``z_ang`` is always increasing.
+    """
+    rho = np.asarray(rho, dtype=float)
+
+    if rho.ndim != 3:
+        raise ValueError(f"`rho` must be a 3D array, got shape {rho.shape}.")
+
+    try:
+        origin_tokens = header_lines[2].split()
+        xgrid_tokens = header_lines[3].split()
+        ygrid_tokens = header_lines[4].split()
+        zgrid_tokens = header_lines[5].split()
+    except IndexError as exc:
+        raise ValueError("`header_lines` does not contain the expected 6 cube header lines.") from exc
+
+    try:
+        nx = abs(int(xgrid_tokens[0]))
+        ny = abs(int(ygrid_tokens[0]))
+        nz = abs(int(zgrid_tokens[0]))
+    except (IndexError, ValueError) as exc:
+        raise ValueError("Could not parse grid dimensions from cube header.") from exc
+
+    if rho.shape != (nx, ny, nz):
+        raise ValueError(
+            f"Shape mismatch: header expects ({nx}, {ny}, {nz}), "
+            f"but rho has shape {rho.shape}."
+        )
+
+    try:
+        z0_bohr = float(origin_tokens[3])
+
+        vx_bohr = np.array(list(map(float, xgrid_tokens[1:4])), dtype=float)
+        vy_bohr = np.array(list(map(float, ygrid_tokens[1:4])), dtype=float)
+        vz_bohr = np.array(list(map(float, zgrid_tokens[1:4])), dtype=float)
+    except (IndexError, ValueError) as exc:
+        raise ValueError("Could not parse origin/grid vectors from cube header.") from exc
+
+    if check_axis_alignment:
+        if (
+            abs(vx_bohr[2]) > alignment_tol
+            or abs(vy_bohr[2]) > alignment_tol
+            or np.linalg.norm(vz_bohr[:2]) > alignment_tol
+        ):
+            raise ValueError(
+                "z_charge_density_profile assumes that the third cube axis is the "
+                "Cartesian z direction. This cube does not satisfy that assumption."
+            )
+
+    dz_bohr = float(vz_bohr[2])
+    if abs(dz_bohr) <= alignment_tol:
+        raise ValueError(
+            "The third cube axis has zero Cartesian z component, so a z-profile "
+            "cannot be constructed with this function."
+        )
+
+    # Area element of one (x, y) grid cell in bohr^2.
+    # This is more robust than dx * dy and also works for skewed x/y planes.
+    dA_xy_bohr2 = np.linalg.norm(np.cross(vx_bohr, vy_bohr))
+
+    # Integrate rho over x and y for each z slice -> e / bohr
+    lambda_z_bohr = rho.sum(axis=(0, 1)) * dA_xy_bohr2
+
+    # z coordinates in bohr, then Å
+    z_bohr = z0_bohr + np.arange(nz, dtype=float) * dz_bohr
+
+    # Keep output ordered with increasing z
+    if z_bohr[0] > z_bohr[-1]:
+        z_bohr = z_bohr[::-1]
+        lambda_z_bohr = lambda_z_bohr[::-1]
+
+    z_ang = z_bohr * bohr_to_ang
+    lambda_z_ang = lambda_z_bohr / bohr_to_ang
+
+    return z_ang, lambda_z_ang
+
+def cumulative_charge_z(
+    header_lines,
+    rho,
+    bohr_to_ang,
+    zmin=None,
+    zmax=None,
+    check_axis_alignment=True,
+    alignment_tol=1e-8,
+):
+    """
+    Compute the cumulative in-plane integrated charge along z.
+
+    Parameters
+    ----------
+    header_lines : list[str]
+        Cube header lines as returned by ``read_cube_full``.
+    rho : numpy.ndarray
+        Charge density array with shape (nx, ny, nz), in e / bohr^3.
+    bohr_to_ang : float
+        Bohr-to-Å conversion factor.
+    zmin, zmax : float or None, optional
+        Optional lower/upper bounds in Å for selecting the z interval over
+        which the cumulative charge is computed. If omitted, use the full z range.
+    check_axis_alignment : bool, default True
+        If True, validate that the third cube axis corresponds to the
+        Cartesian z direction.
+    alignment_tol : float, default 1e-8
+        Tolerance used for the axis-alignment check in bohr.
+
+    Returns
+    -------
+    z_sel_ang : numpy.ndarray
+        Selected z coordinates in Å, ordered increasingly.
+    Qz : numpy.ndarray
+        Cumulative charge in electrons, obtained by integrating the
+        in-plane charge profile from the beginning of the selected interval
+        up to each z point.
+
+    Notes
+    -----
+    This function is built on top of ``z_charge_density_profile``. Since
+    ``lambda(z)`` is returned in e / Å, the cumulative integral over z is
+    naturally in electrons.
+
+    The integral is evaluated on the cube grid as a left-Riemann sum,
+    consistent with the discrete cube representation:
+        Q(z_k) = sum_{i <= k} lambda(z_i) * dz
+    """
+    z_ang, lambda_z_ang = z_charge_density_profile(
+        header_lines=header_lines,
+        rho=rho,
+        bohr_to_ang=bohr_to_ang,
+        check_axis_alignment=check_axis_alignment,
+        alignment_tol=alignment_tol,
+    )
+
+    if z_ang.ndim != 1 or lambda_z_ang.ndim != 1 or z_ang.size != lambda_z_ang.size:
+        raise ValueError("Internal error: z profile arrays must be 1D and have the same length.")
+
+    if z_ang.size == 0:
+        raise ValueError("Empty z profile.")
+
+    mask = np.ones_like(z_ang, dtype=bool)
+    if zmin is not None:
+        mask &= z_ang >= float(zmin)
+    if zmax is not None:
+        mask &= z_ang <= float(zmax)
+
+    if not np.any(mask):
+        raise ValueError(
+            "The requested z interval does not contain any grid points."
+        )
+
+    z_sel_ang = z_ang[mask]
+    lambda_sel_ang = lambda_z_ang[mask]
+
+    if z_sel_ang.size == 1:
+        # Degenerate interval with a single grid point
+        Qz = np.array([0.0], dtype=float)
+        return z_sel_ang, Qz
+
+    dz = np.diff(z_sel_ang)
+    if np.any(dz <= 0):
+        raise ValueError("z grid is not strictly increasing.")
+
+    # For a regular cube grid, dz should be constant; allow tiny numerical noise.
+    dz0 = float(np.mean(dz))
+    if not np.allclose(dz, dz0, rtol=0.0, atol=1e-12):
+        raise ValueError("Selected z grid is not uniform, which is unexpected for a cube file.")
+
+    Qz = np.cumsum(lambda_sel_ang) * dz0
+
+    return z_sel_ang, Qz
+
+def z_at_charge(
+    header_lines,
+    rho,
+    target_charge,
+    bohr_to_ang,
+    zmin=None,
+    zmax=None,
+    check_axis_alignment=True,
+    alignment_tol=1e-8,
+):
+    """
+    Find the z coordinate at which the cumulative charge reaches a target value.
+
+    Parameters
+    ----------
+    header_lines : list[str]
+        Cube header lines as returned by ``read_cube_full``.
+    rho : numpy.ndarray
+        Charge density array with shape (nx, ny, nz), in e / bohr^3.
+    target_charge : float
+        Target cumulative charge in electrons.
+    bohr_to_ang : float
+        Bohr-to-Å conversion factor.
+    zmin, zmax : float or None, optional
+        Optional lower/upper bounds in Å defining the z interval in which the
+        cumulative charge is constructed.
+    check_axis_alignment : bool, default True
+        If True, validate that the third cube axis corresponds to the
+        Cartesian z direction.
+    alignment_tol : float, default 1e-8
+        Tolerance used for the axis-alignment check in bohr.
+
+    Returns
+    -------
+    z_target_ang : float
+        Interpolated z coordinate in Å at which the cumulative charge reaches
+        ``target_charge``.
+
+    Notes
+    -----
+    The cumulative charge is computed on the discrete z grid using
+    ``cumulative_charge_z`` and then linearly interpolated between the two
+    neighboring grid points that bracket the target value.
+
+    If the target charge coincides with a grid value (within floating-point
+    precision), the corresponding grid z is returned directly.
+    """
+    target_charge = float(target_charge)
+
+    z_ang, Qz = cumulative_charge_z(
+        header_lines=header_lines,
+        rho=rho,
+        bohr_to_ang=bohr_to_ang,
+        zmin=zmin,
+        zmax=zmax,
+        check_axis_alignment=check_axis_alignment,
+        alignment_tol=alignment_tol,
+    )
+
+    if z_ang.size == 0:
+        raise ValueError("Empty z interval.")
+
+    if z_ang.size == 1:
+        if np.isclose(Qz[0], target_charge):
+            return float(z_ang[0])
+        raise ValueError(
+            f"Target charge {target_charge} e is outside the cumulative-charge "
+            f"range available in the selected interval."
+        )
+
+    qmin = float(np.min(Qz))
+    qmax = float(np.max(Qz))
+    if target_charge < qmin or target_charge > qmax:
+        raise ValueError(
+            f"Target charge {target_charge} e is outside the cumulative-charge "
+            f"range [{qmin}, {qmax}] e of the selected interval."
+        )
+
+    idx_exact = np.where(np.isclose(Qz, target_charge, rtol=0.0, atol=1e-14))[0]
+    if idx_exact.size:
+        return float(z_ang[idx_exact[0]])
+
+    idx_hi = int(np.searchsorted(Qz, target_charge, side="left"))
+    if idx_hi == 0 or idx_hi >= Qz.size:
+        raise ValueError(
+            "Could not bracket the target charge for interpolation."
+        )
+
+    idx_lo = idx_hi - 1
+    q1, q2 = float(Qz[idx_lo]), float(Qz[idx_hi])
+    z1, z2 = float(z_ang[idx_lo]), float(z_ang[idx_hi])
+
+    if np.isclose(q2, q1):
+        raise ValueError(
+            "Cannot interpolate z at target charge because consecutive cumulative "
+            "charge values are equal."
+        )
+
+    frac = (target_charge - q1) / (q2 - q1)
+    z_target_ang = z1 + frac * (z2 - z1)
+
+    return float(z_target_ang)
+
+def charge_at_z(
+    header_lines,
+    rho,
+    z_value,
+    bohr_to_ang,
+    zmin=None,
+    zmax=None,
+    check_axis_alignment=True,
+    alignment_tol=1e-8,
+):
+    """
+    Return the cumulative charge at a given z coordinate.
+
+    Parameters
+    ----------
+    header_lines : list[str]
+        Cube header lines as returned by ``read_cube_full``.
+    rho : numpy.ndarray
+        Charge density array with shape (nx, ny, nz), in e / bohr^3.
+    z_value : float
+        z coordinate in Å at which the cumulative charge should be evaluated.
+    bohr_to_ang : float
+        Bohr-to-Å conversion factor.
+    zmin, zmax : float or None, optional
+        Optional lower/upper bounds in Å defining the z interval in which the
+        cumulative charge is constructed.
+    check_axis_alignment : bool, default True
+        If True, validate that the third cube axis corresponds to the
+        Cartesian z direction.
+    alignment_tol : float, default 1e-8
+        Tolerance used for the axis-alignment check in bohr.
+
+    Returns
+    -------
+    charge : float
+        Interpolated cumulative charge in electrons at ``z_value``.
+
+    Notes
+    -----
+    The cumulative charge is first computed on the discrete z grid using
+    ``cumulative_charge_z`` and then linearly interpolated to ``z_value``.
+
+    If ``z_value`` coincides with a grid point (within floating-point
+    precision), the corresponding cumulative charge is returned directly.
+    """
+    z_value = float(z_value)
+
+    z_ang, Qz = cumulative_charge_z(
+        header_lines=header_lines,
+        rho=rho,
+        bohr_to_ang=bohr_to_ang,
+        zmin=zmin,
+        zmax=zmax,
+        check_axis_alignment=check_axis_alignment,
+        alignment_tol=alignment_tol,
+    )
+
+    if z_ang.size == 0:
+        raise ValueError("Empty z interval.")
+
+    if z_value < float(z_ang[0]) or z_value > float(z_ang[-1]):
+        raise ValueError(
+            f"Requested z = {z_value} Å is outside the available range "
+            f"[{float(z_ang[0])}, {float(z_ang[-1])}] Å."
+        )
+
+    idx_exact = np.where(np.isclose(z_ang, z_value, rtol=0.0, atol=1e-14))[0]
+    if idx_exact.size:
+        return float(Qz[idx_exact[0]])
+
+    idx_hi = int(np.searchsorted(z_ang, z_value, side="left"))
+    if idx_hi == 0 or idx_hi >= z_ang.size:
+        raise ValueError(
+            "Could not bracket the requested z value for interpolation."
+        )
+
+    idx_lo = idx_hi - 1
+    z1, z2 = float(z_ang[idx_lo]), float(z_ang[idx_hi])
+    q1, q2 = float(Qz[idx_lo]), float(Qz[idx_hi])
+
+    if np.isclose(z2, z1):
+        raise ValueError(
+            "Cannot interpolate cumulative charge because consecutive z values are equal."
+        )
+
+    frac = (z_value - z1) / (z2 - z1)
+    charge = q1 + frac * (q2 - q1)
+
+    return float(charge)
