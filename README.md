@@ -2,7 +2,7 @@
 
 A collection of practical Jupyter notebooks for post-processing atomistic-simulation data, together with a small shared Python package used by the cube-related notebooks.
 
-The repository is organized so that notebooks remain thin, task-oriented frontends, while reusable logic is moved into `useful_notebooks_cube/`.
+The repository is organized so that notebooks remain thin, task-oriented frontends, while reusable logic is moved into helper packages such as `useful_notebooks_cube/` and `useful_notebooks_cp2k_unfolding/`.
 
 ## Repository layout
 
@@ -15,8 +15,14 @@ The repository is organized so that notebooks remain thin, task-oriented fronten
 - `CubeFiles/`  
   Notebooks for reading, integrating, and visualizing Gaussian cube files.
 
+- `CP2KUnfolding/`  
+  Prototype notebook for unfolding CP2K supercell band structures from `.wfn` orbitals and sparse overlap matrices.
+
 - `useful_notebooks_cube/`  
   Shared helper package for cube-file I/O, line and plane analysis, plotting, and multi-cube workflows.
+
+- `useful_notebooks_cp2k_unfolding/`  
+  Shared helper package for CP2K WFN parsing, sparse overlap parsing, primitive/supercell AO mapping, sparse unfolding, k-path projection, widgets, and unfolded band plotting.
 
 ## General requirements
 
@@ -27,12 +33,14 @@ Depending on the notebook, you may need some or all of the following:
 - `numpy`
 - `matplotlib`
 - `scipy`
+- `ipywidgets`
+- `cp2k-spm-tools` for CP2K WFN-based unfolding
 - `aiida-core` and an active AiiDA profile for notebooks that read AiiDA nodes
 - SSH / SCP access for notebooks that retrieve files from remote HPC systems
 
 ## Design principle
 
-The repository is being cleaned up so that notebook-specific code stays in the notebooks, while reusable functionality is kept in `useful_notebooks_cube/`.
+The repository is being cleaned up so that notebook-specific code stays in the notebooks, while reusable functionality is kept in helper packages such as `useful_notebooks_cube/` and `useful_notebooks_cp2k_unfolding/`.
 
 In practice this means:
 

@@ -11,7 +11,8 @@ dependencies = [
     "numpy",
     "scipy",
     "matplotlib",
+    "ipywidgets",
 ]
 
 [tool.setuptools]
-packages = ["useful_notebooks_cube"]
+packages = ["useful_notebooks_cube", "useful_notebooks_cp2k_unfolding"]
