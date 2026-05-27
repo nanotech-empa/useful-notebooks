@@ -18,6 +18,7 @@ from .io import (
     hartree_to_ev,
     parse_cp2k_cell_vectors,
     parse_cp2k_overlap_matrix_log,
+    read_sparse_overlap_npz,
     print_eigenvalue_summary,
     read_cp2k_wfn,
     read_xyz_coordinates,

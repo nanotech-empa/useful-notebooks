@@ -188,6 +188,24 @@ def parse_cp2k_overlap_matrix_log(path: str | Path, nao: int | None = None) -> s
     return parse_cp2k_overlap_matrix_log_data(path, nao).matrix
 
 
+def read_sparse_overlap_npz(path_or_file) -> Cp2kOverlapMatrixLog:
+    """Read sparse CP2K overlap data written by ``write_sparse_overlap_npz``."""
+    with np.load(path_or_file) as data:
+        arrays = {key: data[key] for key in data.files}
+
+    matrix = sp.coo_matrix(
+        (arrays["data"], (arrays["row"], arrays["col"])),
+        shape=tuple(arrays["shape"]),
+    ).tocsr()
+    return Cp2kOverlapMatrixLog(
+        matrix=matrix,
+        basis_index=arrays["basis_index"],
+        atom_index=arrays["atom_index"],
+        element=arrays["element"],
+        orbital=arrays["orbital"],
+    )
+
+
 def write_sparse_overlap_npz(
     input_path: str | Path,
     output_path: str | Path,
