@@ -93,6 +93,67 @@ def integer_supercell_matrix(primitive_vectors: np.ndarray, supercell_vectors: n
     return M_int
 
 
+
+
+def primitive_vectors_from_supercell_matrix(
+    supercell_vectors: np.ndarray, matrix: np.ndarray
+) -> np.ndarray:
+    """Return primitive row vectors for ``S = A @ M``."""
+    matrix = np.asarray(matrix, dtype=float)
+    dim = matrix.shape[0]
+    supercell_lattice = lattice_matrix(supercell_vectors)
+    primitive_lattice = supercell_lattice @ np.linalg.inv(matrix)
+    vectors = np.zeros((dim, 3), dtype=float)
+    vectors[:, :dim] = primitive_lattice.T
+    return vectors
+
+
+def snap_primitive_vectors_to_supercell(
+    approx_vectors: np.ndarray,
+    supercell_vectors: np.ndarray,
+    *,
+    search_radius: int = 1,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, float]:
+    """Snap approximate primitive vectors to the nearest exact supercell tiling.
+
+    Returns ``snapped_vectors, integer_matrix, floating_matrix, correction_norm``.
+    """
+    approx_vectors = np.asarray(approx_vectors, dtype=float)
+    supercell_vectors = np.asarray(supercell_vectors, dtype=float)
+    dim = approx_vectors.shape[0]
+    approx_lattice = lattice_matrix(approx_vectors)
+    supercell_lattice = lattice_matrix(supercell_vectors)
+    matrix_float = np.linalg.solve(approx_lattice, supercell_lattice)
+    matrix_center = np.rint(matrix_float).astype(int)
+
+    best = None
+    width = 2 * int(search_radius) + 1
+    for delta in np.ndindex(*([width] * (dim * dim))):
+        delta_matrix = np.asarray(delta, dtype=int).reshape(dim, dim) - search_radius
+        matrix = matrix_center + delta_matrix
+        det = np.linalg.det(matrix)
+        if abs(det) < 0.5:
+            continue
+        snapped = primitive_vectors_from_supercell_matrix(supercell_vectors, matrix)
+        try:
+            integer_supercell_matrix(snapped, supercell_vectors)
+        except ValueError:
+            continue
+        correction_norm = float(np.linalg.norm(snapped - approx_vectors))
+        det_penalty = abs(int(round(abs(det)))) * 1.0e-8
+        item = (correction_norm + det_penalty, correction_norm, matrix, snapped)
+        if best is None or item[0] < best[0]:
+            best = item
+
+    if best is None:
+        raise ValueError(
+            "Could not snap primitive vectors to an exact integer tiling of the supercell."
+        )
+
+    _, correction_norm, matrix, snapped = best
+    return snapped, matrix, matrix_float, correction_norm
+
+
 def same_replica_class(n1: np.ndarray, n2: np.ndarray, M: np.ndarray, tol: float = 1e-8) -> bool:
     z = np.linalg.solve(M, n1 - n2)
     return np.allclose(z, np.rint(z), atol=tol)

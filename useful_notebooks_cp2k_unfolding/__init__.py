@@ -12,6 +12,8 @@ from .geometry import (
     lattice_matrix,
     matrix_to_text,
     parse_matrix_text,
+    primitive_vectors_from_supercell_matrix,
+    snap_primitive_vectors_to_supercell,
 )
 from .io import (
     SupercellWavefunctions,
