@@ -80,17 +80,33 @@ def print_eigenvalue_summary(wfn: SupercellWavefunctions, spin: int = 0, n: int 
         print(f"{i:4d}  {e_ev:16.10f} eV   {e_ha:16.10f} Ha")
 
 
-def parse_cp2k_overlap_matrix_log(path: str | Path, nao: int | None = None) -> sp.csr_matrix:
-    """Parse CP2K human-readable OVERLAP MATRIX blocks as a sparse CSR matrix."""
+@dataclass
+class Cp2kOverlapMatrixLog:
+    matrix: sp.csr_matrix
+    basis_index: np.ndarray
+    atom_index: np.ndarray
+    element: np.ndarray
+    orbital: np.ndarray
+
+
+def parse_cp2k_overlap_matrix_log_data(
+    path: str | Path,
+    nao: int | None = None,
+    *,
+    threshold: float | None = None,
+) -> Cp2kOverlapMatrixLog:
+    """Parse CP2K human-readable OVERLAP MATRIX blocks and AO row metadata."""
     path = Path(path)
     float_re = re.compile(r"^[+-]?(?:[0-9]+(?:[.][0-9]*)?|[.][0-9]+)(?:[EeDd][+-]?[0-9]+)?$")
 
     rows: list[int] = []
     cols: list[int] = []
     vals: list[float] = []
+    basis: dict[int, tuple[int, str, str]] = {}
     current_cols: list[int] | None = None
     inside = False
     max_index = 0
+    threshold_value = 0.0 if threshold is None else float(threshold)
 
     def is_int_token(tok: str) -> bool:
         return tok.isdigit()
@@ -131,17 +147,71 @@ def parse_cp2k_overlap_matrix_log(path: str | Path, nao: int | None = None) -> s
                 continue
 
             irow = int(parts[0]) - 1
+            atom = int(parts[1])
+            element = parts[2]
+            orbital = parts[3]
+            basis[irow] = (atom, element, orbital)
             max_index = max(max_index, irow + 1)
             for jcol, tok in zip(current_cols, value_tokens):
-                rows.append(irow)
-                cols.append(jcol)
-                vals.append(float(tok.replace("D", "E").replace("d", "e")))
+                value = float(tok.replace("D", "E").replace("d", "e"))
+                if abs(value) > threshold_value:
+                    rows.append(irow)
+                    cols.append(jcol)
+                    vals.append(value)
 
-    if not rows:
+    if not basis:
         raise ValueError(f"No overlap-matrix entries found in {path}")
 
     n = int(nao) if nao is not None else max_index
-    return sp.coo_matrix((vals, (rows, cols)), shape=(n, n)).tocsr()
+    matrix = sp.coo_matrix((vals, (rows, cols)), shape=(n, n)).tocsr()
+    basis_index = np.arange(1, n + 1, dtype=np.int64)
+    atom_index = np.zeros(n, dtype=np.int64)
+    elements = np.full(n, "", dtype="U8")
+    orbitals = np.full(n, "", dtype="U16")
+    for irow, (atom, element, orbital) in basis.items():
+        if irow < n:
+            atom_index[irow] = atom
+            elements[irow] = element
+            orbitals[irow] = orbital
+
+    return Cp2kOverlapMatrixLog(
+        matrix=matrix,
+        basis_index=basis_index,
+        atom_index=atom_index,
+        element=elements,
+        orbital=orbitals,
+    )
+
+
+def parse_cp2k_overlap_matrix_log(path: str | Path, nao: int | None = None) -> sp.csr_matrix:
+    """Parse CP2K human-readable OVERLAP MATRIX blocks as a sparse CSR matrix."""
+    return parse_cp2k_overlap_matrix_log_data(path, nao).matrix
+
+
+def write_sparse_overlap_npz(
+    input_path: str | Path,
+    output_path: str | Path,
+    *,
+    threshold: float = 0.0,
+    nao: int | None = None,
+) -> None:
+    """Write CP2K overlap data as compressed COO arrays plus AO metadata."""
+    parsed = parse_cp2k_overlap_matrix_log_data(
+        input_path, nao=nao, threshold=threshold
+    )
+    matrix = parsed.matrix.tocoo()
+    np.savez_compressed(
+        output_path,
+        row=matrix.row.astype(np.int64),
+        col=matrix.col.astype(np.int64),
+        data=matrix.data.astype(np.float64),
+        shape=np.asarray(matrix.shape, dtype=np.int64),
+        basis_index=parsed.basis_index,
+        atom_index=parsed.atom_index,
+        element=parsed.element,
+        orbital=parsed.orbital,
+        threshold=np.asarray(threshold, dtype=np.float64),
+    )
 
 
 def read_xyz_coordinates(path: str | Path) -> tuple[list[str], np.ndarray]:
