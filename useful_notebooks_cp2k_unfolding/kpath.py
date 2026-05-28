@@ -96,7 +96,7 @@ def standard_kpath(
     if lattice_type in {"hex", "hexagonal", "graphene"}:
         points = {
             "G": np.array([0.0, 0.0]),
-            "K": np.array([1.0 / 3.0, 1.0 / 3.0]),
+            "K": np.array([2.0 / 3.0, 1.0 / 3.0]),
             "M": np.array([0.5, 0.0]),
         }
         path = ["G", "K", "M", "G"]
