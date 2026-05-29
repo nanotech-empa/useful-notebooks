@@ -7,6 +7,7 @@ import numpy as np
 
 from .geometry import (
     build_modulo_lattice_ao_mapping,
+    infer_aos_per_symbol_from_overlap_metadata,
     infer_aos_per_symbol_from_wfn,
     snap_primitive_vectors_to_supercell,
 )
@@ -138,7 +139,12 @@ def write_unfolding_npz(
             raise ValueError(
                 f"Overlap shape {overlap.matrix.shape} does not match WFN AO count {coeffs.shape[1]}"
             )
-        aos_per_symbol = infer_aos_per_symbol_from_wfn(symbols, coeffs.shape[1])
+        if getattr(overlap, "atom_index", None) is not None and len(overlap.atom_index):
+            aos_per_symbol = infer_aos_per_symbol_from_overlap_metadata(
+                symbols, overlap.atom_index
+            )
+        else:
+            aos_per_symbol = infer_aos_per_symbol_from_wfn(symbols, coeffs.shape[1])
         mapping = build_modulo_lattice_ao_mapping(
             symbols=symbols,
             coords_cart=coords,

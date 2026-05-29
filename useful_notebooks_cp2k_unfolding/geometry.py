@@ -420,3 +420,47 @@ def infer_aos_per_symbol_from_wfn(symbols: Sequence[str], nao: int) -> dict[str,
     if nao % natom != 0:
         raise ValueError(f"Cannot infer AO count: nao={nao} is not divisible by natom={natom}.")
     return {unique[0]: nao // natom}
+
+
+def infer_aos_per_symbol_from_overlap_metadata(
+    symbols: Sequence[str],
+    atom_index: np.ndarray,
+) -> dict[str, int]:
+    """Infer AO counts per chemical symbol from CP2K AO-matrix row metadata.
+
+    CP2K prints one AO-matrix row per AO and includes the 1-based atom index on
+    each row. Counting rows per atom is more robust than dividing the total AO
+    count by the number of atoms and supports multi-element primitive cells such
+    as BN. All atoms with the same symbol are required to have the same AO count;
+    if this is not true the structure uses multiple basis/kind definitions for
+    one symbol and the current mapping needs explicit per-atom/kind AO counts.
+    """
+    atom_index = np.asarray(atom_index, dtype=int)
+    natom = len(symbols)
+    if atom_index.size == 0:
+        raise ValueError("Cannot infer AO counts: overlap metadata has no atom indices.")
+
+    counts_by_atom = np.bincount(atom_index, minlength=natom + 1)[1 : natom + 1]
+    missing = np.where(counts_by_atom == 0)[0] + 1
+    if len(missing):
+        raise ValueError(
+            "Cannot infer AO counts: overlap metadata is missing rows for atom indices "
+            + ", ".join(str(int(i)) for i in missing)
+        )
+
+    counts_by_symbol: dict[str, set[int]] = {}
+    for symbol, count in zip(symbols, counts_by_atom):
+        counts_by_symbol.setdefault(symbol, set()).add(int(count))
+
+    ambiguous = {
+        symbol: sorted(counts)
+        for symbol, counts in counts_by_symbol.items()
+        if len(counts) > 1
+    }
+    if ambiguous:
+        raise ValueError(
+            "Cannot infer one AO count per symbol because some symbols have multiple AO counts: "
+            + "; ".join(f"{symbol}: {counts}" for symbol, counts in ambiguous.items())
+        )
+
+    return {symbol: counts.pop() for symbol, counts in counts_by_symbol.items()}

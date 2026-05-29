@@ -7,6 +7,7 @@ from .geometry import (
     fractional_coordinates,
     guess_dimensionality_from_cell_and_coords,
     guess_primitive_vectors_from_geometry,
+    infer_aos_per_symbol_from_overlap_metadata,
     infer_aos_per_symbol_from_wfn,
     integer_supercell_matrix,
     lattice_matrix,
