@@ -25,6 +25,7 @@ from .kpath import (
     project_kpoints_to_kpath,
     standard_kpath,
 )
+from .pdos import write_sparse_atom_pdos_npz
 from .unfolding import mo_norms_sparse, unfold_band_weights_full
 
 
@@ -67,6 +68,9 @@ def write_unfolding_npz(
     tol: float = 1.0e-5,
     overlap_format: str = "auto",
     overlap_threshold: float = 1.0e-10,
+    pdos_pattern: str | Path | None = None,
+    pdos_output_path: str | Path | None = None,
+    pdos_threshold: float = 1.0e-4,
 ) -> None:
     dim = int(primitive_vectors_approx.shape[0])
     supercell_vectors = parse_cp2k_cell_vectors(cp2k_input_path, dim=dim)
@@ -134,6 +138,14 @@ def write_unfolding_npz(
     for label, point in hs_points.items():
         arrays[f"hs_point_{label}"] = np.asarray(point, dtype=np.float64)
 
+    if pdos_output_path is not None:
+        arrays["pdos_projection_filename"] = np.asarray(
+            Path(pdos_output_path).name, dtype="U128"
+        )
+        arrays["pdos_projection_threshold"] = np.asarray(
+            pdos_threshold, dtype=np.float64
+        )
+
     for spin, coeffs in enumerate(wfn.coeffs):
         if overlap.matrix.shape != (coeffs.shape[1], coeffs.shape[1]):
             raise ValueError(
@@ -167,6 +179,13 @@ def write_unfolding_npz(
 
     np.savez_compressed(output_path, **arrays)
 
+    if pdos_pattern is not None and pdos_output_path is not None:
+        write_sparse_atom_pdos_npz(
+            pdos_pattern,
+            pdos_output_path,
+            threshold=pdos_threshold,
+        )
+
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Compute CP2K localized-basis unfolding weights.")
@@ -183,6 +202,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--tol", type=float, default=1.0e-5)
     parser.add_argument("--overlap-format", choices=["auto", "sparse", "log"], default="auto")
     parser.add_argument("--overlap-threshold", type=float, default=1.0e-10)
+    parser.add_argument("--pdos-glob", default=None)
+    parser.add_argument("--pdos-output", default=None)
+    parser.add_argument("--pdos-threshold", type=float, default=1.0e-4)
     args = parser.parse_args(argv)
 
     write_unfolding_npz(
@@ -199,6 +221,9 @@ def main(argv: list[str] | None = None) -> int:
         tol=args.tol,
         overlap_format=args.overlap_format,
         overlap_threshold=args.overlap_threshold,
+        pdos_pattern=args.pdos_glob,
+        pdos_output_path=args.pdos_output,
+        pdos_threshold=args.pdos_threshold,
     )
     return 0
 
