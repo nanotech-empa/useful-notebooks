@@ -15,6 +15,7 @@ class AOMapping:
     basis_frac_coords: np.ndarray
     atom_to_basis: np.ndarray
     atom_to_replica: np.ndarray
+    atom_displacements_cart: np.ndarray
     supercell_integer_matrix: np.ndarray
 
     @property
@@ -25,6 +26,21 @@ class AOMapping:
     def nao_super(self) -> int:
         return int(self.ao_to_replica.size)
 
+
+
+def normalize_cp2k_kind_symbol(symbol: str) -> str:
+    """Return the chemical element part of a CP2K kind/XYZ symbol.
+
+    CP2K structures can contain symbols such as ``B1`` and ``N1``.  For
+    primitive-basis assignment we want those to match ordinary element labels
+    ``B`` and ``N``.
+    """
+    text = str(symbol).strip()
+    if not text:
+        return text
+    if len(text) >= 2 and text[1].islower():
+        return text[:2]
+    return text[:1]
 
 def lattice_matrix(vectors: np.ndarray) -> np.ndarray:
     """Return a 2D/3D column-vector lattice matrix from row-vector input."""
@@ -78,6 +94,155 @@ def cluster_basis_fractional_coords(
         atom_to_basis[i] = match
 
     return np.asarray(basis_frac, dtype=float), atom_to_basis
+
+
+def _basis_counts_by_symbol(symbols: Sequence[str], atom_to_basis: np.ndarray) -> dict[str, int]:
+    counts: dict[str, set[int]] = {}
+    for sym, ibasis in zip(symbols, atom_to_basis):
+        counts.setdefault(sym, set()).add(int(ibasis))
+    return {sym: len(items) for sym, items in counts.items()}
+
+
+def _expected_basis_counts_by_symbol(symbols: Sequence[str], det: int) -> dict[str, int]:
+    expected: dict[str, int] = {}
+    for sym in sorted(set(symbols)):
+        count = sum(1 for item in symbols if item == sym)
+        # The max(1, ...) branch keeps isolated defects/adsorbates represented,
+        # while periodic species with a few vacancies still round to their
+        # primitive-cell multiplicity.
+        expected[sym] = max(1, int(round(count / det)))
+    return expected
+
+
+def cluster_basis_fractional_coords_adaptive(
+    symbols: Sequence[str],
+    coords_cart: np.ndarray,
+    primitive_vectors: np.ndarray,
+    det: int,
+    tol: float = 1e-5,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Cluster basis positions, relaxing tolerance for locally relaxed supercells.
+
+    The initial tolerance is intentionally strict. If it produces far too many
+    primitive basis sites, infer the expected primitive multiplicity per element
+    from the supercell determinant and retry with gradually looser tolerances.
+    This maps locally relaxed atoms back onto the nearest ideal primitive sites
+    without making perfectly periodic cases less precise.
+    """
+
+    basis_frac, atom_to_basis = cluster_basis_fractional_coords(
+        symbols, coords_cart, primitive_vectors, tol=tol
+    )
+    expected = _expected_basis_counts_by_symbol(symbols, det)
+    initial_counts = _basis_counts_by_symbol(symbols, atom_to_basis)
+    if initial_counts == expected:
+        return basis_frac, atom_to_basis
+
+    candidate_grid = (
+        float(tol),
+        5.0e-5,
+        1.0e-4,
+        5.0e-4,
+        1.0e-3,
+        2.0e-3,
+        5.0e-3,
+        1.0e-2,
+        2.0e-2,
+        5.0e-2,
+        7.5e-2,
+        1.0e-1,
+    )
+    candidates = sorted({value for value in candidate_grid if value <= float(tol)})
+    best = (sum(abs(initial_counts.get(sym, 0) - num) for sym, num in expected.items()), basis_frac, atom_to_basis, float(tol), initial_counts)
+    for candidate_tol in candidates:
+        trial_basis, trial_atom_to_basis = cluster_basis_fractional_coords(
+            symbols, coords_cart, primitive_vectors, tol=candidate_tol
+        )
+        trial_counts = _basis_counts_by_symbol(symbols, trial_atom_to_basis)
+        score = sum(abs(trial_counts.get(sym, 0) - num) for sym, num in expected.items())
+        if score < best[0]:
+            best = (score, trial_basis, trial_atom_to_basis, candidate_tol, trial_counts)
+        if trial_counts == expected:
+            if candidate_tol > tol:
+                print(
+                    "Adjusted primitive basis clustering tolerance from",
+                    tol,
+                    "to",
+                    candidate_tol,
+                    "to match expected basis counts",
+                    expected,
+                )
+            return trial_basis, trial_atom_to_basis
+
+    if best[3] > tol:
+        print(
+            "WARNING: primitive basis clustering did not exactly match expected counts",
+            expected,
+            "; using tolerance",
+            best[3],
+            "with counts",
+            best[4],
+        )
+    return best[1], best[2]
+
+
+def assign_atoms_to_user_basis(
+    symbols: Sequence[str],
+    coords_cart: np.ndarray,
+    primitive_vectors: np.ndarray,
+    primitive_basis_atom_indices: Sequence[int],
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Assign atoms to user-selected primitive basis atoms plus translations.
+
+    ``primitive_basis_atom_indices`` are zero-based atom indices. The selected
+    atoms define the reference basis inside one primitive cell. All supercell
+    atoms are then mapped to the closest same-symbol translated basis site.
+    """
+    indices = np.asarray(primitive_basis_atom_indices, dtype=int)
+    if indices.ndim != 1 or indices.size == 0:
+        raise ValueError("primitive_basis_atom_indices must contain at least one atom index")
+    if np.any(indices < 0) or np.any(indices >= len(symbols)):
+        raise ValueError("primitive basis atom index out of range")
+    if len(set(indices.tolist())) != len(indices):
+        raise ValueError("primitive basis atom indices contain duplicates")
+
+    dim = primitive_vectors.shape[0]
+    frac = fractional_coordinates(coords_cart, primitive_vectors)
+    basis_frac = modulo_one(frac[indices])
+    normalized_symbols = [normalize_cp2k_kind_symbol(sym) for sym in symbols]
+    basis_symbols = [normalized_symbols[i] for i in indices]
+    missing_symbols = sorted(set(normalized_symbols) - set(basis_symbols))
+    if missing_symbols:
+        raise ValueError(
+            "Primitive basis atoms do not cover all elements in the structure: "
+            + ", ".join(missing_symbols)
+        )
+
+    A = lattice_matrix(primitive_vectors)
+    atom_to_basis = np.full(len(symbols), -1, dtype=int)
+    integer_translations = np.zeros((len(symbols), dim), dtype=int)
+    displacements_cart = np.zeros((len(symbols), 3), dtype=float)
+
+    for iatom, (sym, f) in enumerate(zip(normalized_symbols, frac)):
+        best = None
+        for ibasis, (bsym, bf) in enumerate(zip(basis_symbols, basis_frac)):
+            if sym != bsym:
+                continue
+            n = np.rint(f - bf).astype(int)
+            residual_frac = f - bf - n
+            residual_dim = A @ residual_frac
+            dist = float(np.linalg.norm(residual_dim))
+            candidate = (dist, ibasis, n, residual_dim)
+            if best is None or candidate[0] < best[0]:
+                best = candidate
+        if best is None:
+            raise ValueError(f"No primitive basis atom with symbol {sym!r}")
+        _, ibasis, n, residual_dim = best
+        atom_to_basis[iatom] = ibasis
+        integer_translations[iatom] = n
+        displacements_cart[iatom, :dim] = residual_dim
+
+    return basis_frac, atom_to_basis, integer_translations, displacements_cart
 
 
 def integer_supercell_matrix(primitive_vectors: np.ndarray, supercell_vectors: np.ndarray) -> np.ndarray:
@@ -167,23 +332,36 @@ def build_modulo_lattice_ao_mapping(
     supercell_vectors: np.ndarray,
     aos_per_symbol: dict[str, int],
     tol: float = 1e-5,
+    primitive_basis_atom_indices: Sequence[int] | None = None,
+    verbose: bool = True,
 ) -> AOMapping:
     dim = primitive_vectors.shape[0]
     frac = fractional_coordinates(coords_cart, primitive_vectors)
-    basis_frac, atom_to_basis = cluster_basis_fractional_coords(
-        symbols, coords_cart, primitive_vectors, tol=tol
-    )
-
-    order = np.lexsort(tuple(basis_frac[:, i] for i in reversed(range(dim))))
-    inverse = np.empty_like(order)
-    inverse[order] = np.arange(len(order))
-    basis_frac = basis_frac[order]
-    atom_to_basis = inverse[atom_to_basis]
-
     M = integer_supercell_matrix(primitive_vectors, supercell_vectors)
     det = int(round(abs(np.linalg.det(M))))
+    if primitive_basis_atom_indices is None:
+        basis_frac, atom_to_basis = cluster_basis_fractional_coords_adaptive(
+            symbols, coords_cart, primitive_vectors, det=det, tol=tol
+        )
 
-    integer_translations = np.rint(frac - basis_frac[atom_to_basis]).astype(int)
+        order = np.lexsort(tuple(basis_frac[:, i] for i in reversed(range(dim))))
+        inverse = np.empty_like(order)
+        inverse[order] = np.arange(len(order))
+        basis_frac = basis_frac[order]
+        atom_to_basis = inverse[atom_to_basis]
+
+        integer_translations = np.rint(frac - basis_frac[atom_to_basis]).astype(int)
+        A = lattice_matrix(primitive_vectors)
+        residual_frac = frac - basis_frac[atom_to_basis] - integer_translations
+        atom_displacements_cart = np.zeros((len(symbols), 3), dtype=float)
+        atom_displacements_cart[:, :dim] = (A @ residual_frac.T).T
+    else:
+        basis_frac, atom_to_basis, integer_translations, atom_displacements_cart = assign_atoms_to_user_basis(
+            symbols,
+            coords_cart,
+            primitive_vectors,
+            primitive_basis_atom_indices,
+        )
 
     rep_representatives: list[np.ndarray] = []
     atom_to_replica = np.full(len(symbols), -1, dtype=int)
@@ -201,9 +379,17 @@ def build_modulo_lattice_ao_mapping(
 
         atom_to_replica[i] = found
 
-    if len(rep_representatives) != det:
-        print("WARNING: number of replica classes found differs from det(M).")
-        print("found:", len(rep_representatives), "det(M):", det)
+    displacement_norms = np.linalg.norm(atom_displacements_cart, axis=1)
+    worst = int(np.argmax(displacement_norms))
+
+    if verbose:
+        if len(rep_representatives) != det:
+            print("WARNING: number of replica classes found differs from det(M).")
+            print("found:", len(rep_representatives), "det(M):", det)
+        print("primitive basis atoms:", len(basis_frac))
+        print("atom mapping displacement max [A]:", float(np.max(displacement_norms)))
+        print("atom mapping displacement mean [A]:", float(np.mean(displacement_norms)))
+        print("atom mapping worst atom [1-based]:", worst + 1)
 
     A = lattice_matrix(primitive_vectors)
     replica_vectors_dim = np.asarray([A @ rep for rep in rep_representatives])
@@ -238,6 +424,7 @@ def build_modulo_lattice_ao_mapping(
         basis_frac_coords=basis_frac,
         atom_to_basis=atom_to_basis,
         atom_to_replica=atom_to_replica,
+        atom_displacements_cart=atom_displacements_cart,
         supercell_integer_matrix=M,
     )
 

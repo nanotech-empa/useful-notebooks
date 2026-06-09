@@ -44,6 +44,32 @@ def parse_vectors(text: str) -> np.ndarray:
     return np.asarray(rows, dtype=float)
 
 
+
+def parse_atom_indices(text: str | None) -> list[int] | None:
+    """Parse 1-based atom indices/ranges into zero-based indices."""
+    if text is None or not str(text).strip():
+        return None
+    items: list[int] = []
+    clean = str(text).replace(",", " ")
+    for token in clean.split():
+        if ".." in token:
+            left, right = token.split("..", 1)
+            start = int(left)
+            stop = int(right)
+            step = 1 if stop >= start else -1
+            items.extend(range(start, stop + step, step))
+        elif "-" in token and token.count("-") == 1 and not token.startswith("-"):
+            left, right = token.split("-", 1)
+            start = int(left)
+            stop = int(right)
+            step = 1 if stop >= start else -1
+            items.extend(range(start, stop + step, step))
+        else:
+            items.append(int(token))
+    if any(index < 1 for index in items):
+        raise ValueError("Atom indices are 1-based and must be positive")
+    return [index - 1 for index in items]
+
 def parse_path_labels(text: str) -> list[str]:
     clean = text.strip().replace("Γ", "G")
     if not clean:
@@ -66,11 +92,13 @@ def write_unfolding_npz(
     emin: float | None = None,
     emax: float | None = None,
     tol: float = 1.0e-5,
+    basis_cluster_tol: float = 5.0e-2,
     overlap_format: str = "auto",
     overlap_threshold: float = 1.0e-10,
     pdos_pattern: str | Path | None = None,
     pdos_output_path: str | Path | None = None,
     pdos_threshold: float = 1.0e-4,
+    primitive_basis_atom_indices: list[int] | None = None,
 ) -> None:
     dim = int(primitive_vectors_approx.shape[0])
     supercell_vectors = parse_cp2k_cell_vectors(cp2k_input_path, dim=dim)
@@ -163,8 +191,17 @@ def write_unfolding_npz(
             primitive_vectors=primitive_vectors,
             supercell_vectors=supercell_vectors,
             aos_per_symbol=aos_per_symbol,
-            tol=tol,
+            tol=basis_cluster_tol,
+            primitive_basis_atom_indices=primitive_basis_atom_indices,
         )
+        arrays[f"atom_mapping_displacements_spin_{spin}"] = mapping.atom_displacements_cart
+        arrays[f"atom_to_basis_spin_{spin}"] = mapping.atom_to_basis.astype(np.int64)
+        arrays[f"atom_to_replica_spin_{spin}"] = mapping.atom_to_replica.astype(np.int64)
+        arrays[f"basis_frac_coords_spin_{spin}"] = mapping.basis_frac_coords
+        if primitive_basis_atom_indices is not None:
+            arrays["primitive_basis_atom_indices"] = np.asarray(
+                primitive_basis_atom_indices, dtype=np.int64
+            ) + 1
         weights = unfold_band_weights_full(
             coeffs,
             k_cart_folded,
@@ -200,6 +237,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--emin", type=float, default=None)
     parser.add_argument("--emax", type=float, default=None)
     parser.add_argument("--tol", type=float, default=1.0e-5)
+    parser.add_argument("--basis-cluster-tol", type=float, default=5.0e-2)
+    parser.add_argument("--primitive-basis-atoms", default=None)
     parser.add_argument("--overlap-format", choices=["auto", "sparse", "log"], default="auto")
     parser.add_argument("--overlap-threshold", type=float, default=1.0e-10)
     parser.add_argument("--pdos-glob", default=None)
@@ -219,11 +258,13 @@ def main(argv: list[str] | None = None) -> int:
         emin=args.emin,
         emax=args.emax,
         tol=args.tol,
+        basis_cluster_tol=args.basis_cluster_tol,
         overlap_format=args.overlap_format,
         overlap_threshold=args.overlap_threshold,
         pdos_pattern=args.pdos_glob,
         pdos_output_path=args.pdos_output,
         pdos_threshold=args.pdos_threshold,
+        primitive_basis_atom_indices=parse_atom_indices(args.primitive_basis_atoms),
     )
     return 0
 
