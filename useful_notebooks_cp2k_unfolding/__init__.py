@@ -52,4 +52,3 @@ from .unfolding import (
     unfold_band_weights_sparse_full,
 )
 from .widgets import PrimitiveCellWidgets, create_primitive_cell_widgets, read_primitive_cell_widgets
-

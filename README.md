@@ -6,22 +6,22 @@ The repository is organized so that notebooks remain thin, task-oriented fronten
 
 ## Repository layout
 
-- `AiidaPostProcess/`  
+- `AiidaPostProcess/`
   Notebooks that retrieve or post-process data associated with AiiDA workflows.
 
-- `ChargeAnalysis/`  
+- `ChargeAnalysis/`
   Notebooks focused on charge-related analysis, including cumulative charge along `z`, charge-transfer workflows, and population analysis.
 
-- `CubeFiles/`  
+- `CubeFiles/`
   Notebooks for reading, integrating, and visualizing Gaussian cube files.
 
-- `CP2KUnfolding/`  
+- `CP2KUnfolding/`
   Prototype notebook for unfolding CP2K supercell band structures from `.wfn` orbitals and sparse overlap matrices.
 
-- `useful_notebooks_cube/`  
+- `useful_notebooks_cube/`
   Shared helper package for cube-file I/O, line and plane analysis, plotting, and multi-cube workflows.
 
-- `useful_notebooks_cp2k_unfolding/`  
+- `useful_notebooks_cp2k_unfolding/`
   Shared helper package for CP2K WFN parsing, sparse overlap parsing, primitive/supercell AO mapping, sparse unfolding, k-path projection, widgets, and unfolded band plotting.
 
 ## General requirements
@@ -59,60 +59,60 @@ This should make notebooks easier to maintain and less likely to diverge over ti
 
 #### 1. Cube I/O
 
-- `read_cube_full(...)`  
+- `read_cube_full(...)`
   Read a Gaussian cube file and return header lines, atom lines, volumetric data, and grid shape.
 
-- `write_cube(...)`  
+- `write_cube(...)`
   Write cube data back to disk using a supplied header and atom list.
 
-- `read_cube_full_cached(...)`  
+- `read_cube_full_cached(...)`
   Small in-memory cached reader for repeated interactive use in notebooks.
 
 #### 2. Single-cube charge analysis
 
-- `z_charge_density_profile(...)`  
+- `z_charge_density_profile(...)`
   Compute the in-plane integrated charge profile `λ(z)` such that integrating over `z` gives the total charge.
 
-- `cumulative_charge_z(...)`  
+- `cumulative_charge_z(...)`
   Compute the cumulative integrated charge `Q(z)`.
 
-- `z_at_charge(...)`  
+- `z_at_charge(...)`
   Find the `z` value at which a chosen cumulative charge is reached.
 
-- `charge_at_z(...)`  
+- `charge_at_z(...)`
   Evaluate the cumulative charge at a chosen `z` value.
 
 #### 3. Directional cube analysis
 
-- `cube_plane_average_profile(...)`  
+- `cube_plane_average_profile(...)`
   Compute a 1D profile along an arbitrary direction `P1 → P2` by averaging the field over rectangles perpendicular to that direction.
 
-- `cube_perpendicular_plane_map(...)`  
+- `cube_perpendicular_plane_map(...)`
   Compute a 2D field map in the plane perpendicular to `P1 → P2` at a chosen position.
 
-- `plot_line_profile(...)` and `plot_plane_map(...)`  
+- `plot_line_profile(...)` and `plot_plane_map(...)`
   Lightweight plotting helpers for the corresponding analysis results.
 
 #### 4. Multi-cube workflows
 
-- `read_cubes_same_grid(...)`  
+- `read_cubes_same_grid(...)`
   Read several cube files and assert that they share the same grid definition.
 
-- `evaluate_cube_expression(...)`  
+- `evaluate_cube_expression(...)`
   Evaluate algebraic expressions such as:
   - `cube1 - cube2 - cube3`
   - `2*cube1 - cube2**2 + 3*cube3`
 
-- `write_cube_expression(...)`  
+- `write_cube_expression(...)`
   Evaluate an algebraic cube expression and write the result to disk, keeping the header and atoms of a chosen reference cube.
 
-- `plot_cumulative_charge_multi(...)`  
+- `plot_cumulative_charge_multi(...)`
   Plot cumulative charge for a selected subset of cubes, with optional custom display labels and optional vertical shifts.
 
-- `z_at_charge_multi(...)`  
+- `z_at_charge_multi(...)`
   For each selected cube, find the `z` value where a target cumulative charge is reached.
 
-- `charge_at_z_multi(...)`  
+- `charge_at_z_multi(...)`
   For each selected cube, evaluate the cumulative charge at a chosen `z` value.
 
 ### Notes
@@ -209,10 +209,10 @@ Read a cube file and analyze either a charge density or a Hartree/Rydberg potent
 
 The notebook supports two complementary modes:
 
-- **1D directional profile**  
+- **1D directional profile**
   Average the field over a rectangle perpendicular to `P1 → P2` and plot the result as a function of distance along that direction.
 
-- **2D perpendicular-plane map**  
+- **2D perpendicular-plane map**
   Plot the field in a plane perpendicular to `P1 → P2` at a chosen position, optionally with Gaussian broadening along the normal direction.
 
 The rectangle dimensions can be set manually or initialized automatically from the cell geometry. Periodic boundary conditions are applied consistently when sampling outside the original cell.
