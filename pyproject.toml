@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "useful-notebooks-cube"
 version = "0.1.0"
 description = "Reusable cube-file analysis tools for useful-notebooks"
-requires-python = ">=3.9"
+requires-python = ">=3.12"
 dependencies = [
     "numpy",
     "scipy",
