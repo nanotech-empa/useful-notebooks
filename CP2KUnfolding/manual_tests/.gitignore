@@ -1,0 +1,14 @@
+# Heavy AiiDA/CP2K files copied into local test cases.
+cases/*/parent_calc_folder/*
+!cases/*/parent_calc_folder/.gitkeep
+
+# Local/generated unfolding outputs.
+cases/*/*.npz
+cases/*/_scheduler-*.txt
+cases/*/.ipynb_checkpoints/
+
+# Notebook checkpoints and bytecode.
+.ipynb_checkpoints/
+**/.ipynb_checkpoints/
+__pycache__/
+**/__pycache__/
