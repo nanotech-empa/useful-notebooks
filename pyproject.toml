@@ -15,9 +15,4 @@ dependencies = [
 ]
 
 [tool.setuptools]
-packages = ["useful_notebooks_cube", "useful_notebooks_cp2k_unfolding"]
-
-[project.scripts]
-cp2k-overlap-to-sparse-npz = "useful_notebooks_cp2k_unfolding.overlap_cli:main"
-cp2k-unfold-wfn-sparse = "useful_notebooks_cp2k_unfolding.unfold_cli:main"
-cp2k-unfold-wfn-sparse-mpi = "useful_notebooks_cp2k_unfolding.unfold_mpi_cli:main"
+packages = ["useful_notebooks_cube"]

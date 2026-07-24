@@ -10,8 +10,7 @@ The original prototype notebook expects the following files in the working direc
 - `aiida.inp`
 - optionally `aiida.out`
 
-The reusable implementation lives in `useful_notebooks_cp2k_unfolding/`.
-The local regression harness lives in `manual_tests/`.
+The reusable implementation and command-line tools live in `cp2k-spm-tools`, under `cp2k_spm_tools.cp2k_unfolding`. This folder contains only the notebook frontend and its local regression harness in `manual_tests/`.
 
 Current scope:
 

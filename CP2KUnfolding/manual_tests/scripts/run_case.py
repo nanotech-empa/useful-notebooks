@@ -61,7 +61,7 @@ def build_command(args: argparse.Namespace) -> list[str]:
     runner = [
         sys.executable,
         "-m",
-        "useful_notebooks_cp2k_unfolding.unfold_cli",
+        "cp2k_spm_tools.cli.unfold_wfn_sparse",
     ]
     if args.mpi_ranks and args.mpi_ranks > 1:
         runner = [
@@ -72,7 +72,7 @@ def build_command(args: argparse.Namespace) -> list[str]:
             "-m",
             "mpi4py",
             "-m",
-            "useful_notebooks_cp2k_unfolding.unfold_mpi_cli",
+            "cp2k_spm_tools.cli.unfold_wfn_sparse_mpi",
         ]
 
     command = [

@@ -2,7 +2,7 @@
 
 A collection of practical Jupyter notebooks for post-processing atomistic-simulation data, together with a small shared Python package used by the cube-related notebooks.
 
-The repository is organized so that notebooks remain thin, task-oriented frontends, while reusable logic is moved into helper packages such as `useful_notebooks_cube/` and `useful_notebooks_cp2k_unfolding/`.
+The repository is organized so that notebooks remain thin, task-oriented frontends. Reusable cube logic lives in `useful_notebooks_cube/`, while reusable CP2K unfolding logic lives in the external `cp2k-spm-tools` package.
 
 ## Repository layout
 
@@ -21,8 +21,8 @@ The repository is organized so that notebooks remain thin, task-oriented fronten
 - `useful_notebooks_cube/`
   Shared helper package for cube-file I/O, line and plane analysis, plotting, and multi-cube workflows.
 
-- `useful_notebooks_cp2k_unfolding/`
-  Shared helper package for CP2K WFN parsing, sparse overlap parsing, primitive/supercell AO mapping, sparse unfolding, k-path projection, widgets, and unfolded band plotting.
+- `cp2k-spm-tools` (external dependency)
+  Owns CP2K WFN parsing, sparse overlap handling, primitive/supercell AO mapping, sparse unfolding, k-path projection, widgets, plotting, and the serial/MPI command-line tools.
 
 ## General requirements
 
@@ -40,7 +40,7 @@ Depending on the notebook, you may need some or all of the following:
 
 ## Design principle
 
-The repository is being cleaned up so that notebook-specific code stays in the notebooks, while reusable functionality is kept in helper packages such as `useful_notebooks_cube/` and `useful_notebooks_cp2k_unfolding/`.
+Notebook-specific code stays in the notebooks, while reusable functionality belongs in its maintained library: cube helpers in `useful_notebooks_cube/` and CP2K unfolding in `cp2k-spm-tools`.
 
 In practice this means:
 
