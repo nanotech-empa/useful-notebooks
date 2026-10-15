@@ -232,3 +232,26 @@ For new cube-related notebooks, the preferred pattern is:
 4. add new shared functionality to the package only if it is genuinely reusable
 
 This should keep the repository easier to extend without accumulating slightly different versions of the same helper code.
+
+## Software attribution and scientific acknowledgements
+
+Please credit [useful-notebooks](https://github.com/nanotech-empa/useful-notebooks) and its
+[contributors](https://github.com/nanotech-empa/useful-notebooks/graphs/contributors),
+and identify the release or immutable commit used. Existing author,
+contributor and funding acknowledgements remain authoritative.
+
+Preserve the copyright and permission notices in [LICENSE](LICENSE)
+when copying or distributing copies or substantial portions of MIT-licensed
+code. Separately licensed components retain their own notices. A name or
+repository link does not replace the applicable licence notices.
+
+For research carried out using this environment or the resulting workflows,
+acknowledge [AiiDA](https://github.com/nanotech-empa/.github/blob/main/CITATION_GUIDANCE.md#aiida) and [AiiDAlab](https://github.com/nanotech-empa/.github/blob/main/CITATION_GUIDANCE.md#aiidalab)
+when each platform was actually used, following their respective citation
+guidance. Cite the scientific software and methods actually used as well.
+
+Credit the notebook or helper implementation actually used. In particular, retain cp2k-spm-tools credit for its unfolding routines and useful_notebooks_cube credit for the cube helpers; notebooks that access AiiDA provenance should also acknowledge AiiDA. AiiDAlab citations apply when the notebooks were run through AiiDAlab.
+
+The [shared credit guide](https://github.com/nanotech-empa/.github/blob/main/CITATION_GUIDANCE.md) keeps software attribution, licence
+compliance and scientific citation requests separate. Scientific citation
+requests are not additional MIT licence conditions.
